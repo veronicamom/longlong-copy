@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>longlong-copy round-trip</title>
+  <style>
+    body {
+      margin: 0;
+      font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #111;
+      color: #eee;
+    }
+    main { max-width: 52rem; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { font: 600 18px/1.3 system-ui, sans-serif; }
+    #out { white-space: pre-wrap; }
+    .pass { color: #8fd18f; }
+    .fail { color: #ff8b8b; }
+    iframe { width: 1px; height: 1px; border: 0; position: absolute; left: -9999px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>round-trip</h1>
+    <pre id="out">running…</pre>
+  </main>
+  <script>
+    'use strict';
+
+    var samples = [
+      { name: 'korean', text: '안녕하세요, 롱롱이입니다.' },
+      { name: 'emoji', text: '오늘 날씨 좋아요 🌤️✨' },
+      { name: 'zwj', text: '가족 👨‍👩‍👧 그리고 ✂️' },
+      { name: 'multiline', text: '첫째 줄\n둘째 줄\n\n넷째 줄\n' },
+      { name: 'long', text: '가나다라마바사아자차카타파하'.repeat(80) + '\n😊\n' + '끝'.repeat(40) }
+    ];
+
+    function bytesToBase64Url(bytes) {
+      var bin = '';
+      var size = 0x8000;
+      for (var i = 0; i < bytes.length; i += size) {
+        var slice = bytes.subarray(i, i + size);
+        bin += String.fromCharCode.apply(null, slice);
+      }
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    function encodeT(text) {
+      return 't=' + encodeURIComponent(text);
+    }
+
+    function encodeB(text) {
+      return 'b=' + bytesToBase64Url(new TextEncoder().encode(text));
+    }
+
+    async function encodeZ(text) {
+      var stream = new Blob([new TextEncoder().encode(text)]).stream()
+        .pipeThrough(new CompressionStream('deflate-raw'));
+      var buf = await new Response(stream).arrayBuffer();
+      return 'z=' + bytesToBase64Url(new Uint8Array(buf));
+    }
+
+    function waitForState(iframe) {
+      return new Promise(function (resolve, reject) {
+        var started = performance.now();
+        function tick() {
+          var doc = iframe.contentDocument;
+          var state = doc && doc.documentElement.dataset.state;
+          if (state && state !== 'loading') {
+            resolve(state);
+            return;
+          }
+          if (performance.now() - started > 4000) {
+            reject(new Error('timeout'));
+            return;
+          }
+          requestAnimationFrame(tick);
+        }
+        tick();
+      });
+    }
+
+    function openFragment(frag) {
+      return new Promise(function (resolve, reject) {
+        var iframe = document.createElement('iframe');
+        iframe.addEventListener('load', function () { resolve(iframe); }, { once: true });
+        var url = new URL('index.html', location.href);
+        url.hash = frag;
+        iframe.src = url.href;
+        document.body.appendChild(iframe);
+      });
+    }
+
+    async function check(frag, expect) {
+      var iframe = await openFragment(frag);
+      var state;
+      try {
+        state = await waitForState(iframe);
+      } catch (err) {
+        iframe.remove();
+        return { ok: false, detail: err.message };
+      }
+      var doc = iframe.contentDocument;
+      var value = doc.getElementById('text').value;
+      var stored = '';
+      try { stored = JSON.stringify(sessionStorage) + JSON.stringify(localStorage); } catch (e) {}
+      var leaked = expect.text && stored.indexOf(expect.text) !== -1;
+      iframe.remove();
+      var ok = state === expect.state && value === (expect.text || '') && !leaked;
+      return { ok: ok, detail: 'state=' + state + (leaked ? ' leaked' : '') + (value === (expect.text || '') ? '' : ' value-mismatch') };
+    }
+
+    function line(ok, label, detail) {
+      return (ok ? 'PASS' : 'FAIL') + '  ' + label + (detail && !ok ? '  ' + detail : '');
+    }
+
+    async function run() {
+      var lines = [];
+      var failed = 0;
+      for (var s = 0; s < samples.length; s++) {
+        var sample = samples[s];
+        var modes = [
+          ['t', encodeT(sample.text)],
+          ['b', encodeB(sample.text)]
+        ];
+        if (typeof CompressionStream === 'function') {
+          modes.push(['z', await encodeZ(sample.text)]);
+        } else {
+          lines.push('SKIP  z ' + sample.name + '  no CompressionStream');
+        }
+        for (var m = 0; m < modes.length; m++) {
+          var result = await check(modes[m][1], { state: 'ready', text: sample.text });
+          if (!result.ok) failed += 1;
+          lines.push(line(result.ok, modes[m][0] + ' ' + sample.name, result.detail));
+        }
+        var mixed = encodeB(sample.text) + '&tgWebAppData=query_id%3DAA&tgWebAppVersion=8.0';
+        var mixedResult = await check(mixed, { state: 'ready', text: sample.text });
+        if (!mixedResult.ok) failed += 1;
+        lines.push(line(mixedResult.ok, 'tg ' + sample.name, mixedResult.detail));
+      }
+
+      var empty = await check('', { state: 'empty', text: '' });
+      if (!empty.ok) failed += 1;
+      lines.push(line(empty.ok, 'empty', empty.detail));
+
+      var invalid = await check('b=!!!!', { state: 'error', text: '' });
+      if (!invalid.ok) failed += 1;
+      lines.push(line(invalid.ok, 'bad base64', invalid.detail));
+
+      var out = document.getElementById('out');
+      out.textContent = lines.join('\n') + '\n\n' + (failed ? failed + ' failed' : 'all passed');
+      document.title = failed ? 'FAIL round-trip' : 'PASS round-trip';
+    }
+
+    run().catch(function (err) {
+      document.getElementById('out').textContent = 'FAIL  ' + err.message;
+      document.title = 'FAIL round-trip';
+    });
+  </script>
+</body>
+</html>
