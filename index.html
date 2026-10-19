@@ -495,20 +495,38 @@
       }
     }
 
+    function tgVersionAtLeast(tg, need) {
+      var current = String(tg.version || '0').split('.');
+      var target = String(need).split('.');
+      var len = Math.max(current.length, target.length);
+      for (var i = 0; i < len; i++) {
+        var a = parseInt(current[i] || '0', 10);
+        var b = parseInt(target[i] || '0', 10);
+        if (isNaN(a)) a = 0;
+        if (isNaN(b)) b = 0;
+        if (a > b) return true;
+        if (a < b) return false;
+      }
+      return true;
+    }
+
     function bootTelegram() {
       var tg = window.Telegram && window.Telegram.WebApp;
       if (!tg) return;
       applyTheme();
       try { tg.ready(); } catch (e) {}
       try { tg.expand(); } catch (e) {}
-      if (typeof tg.disableVerticalSwipes === 'function') {
+      // These methods warn on the version 6.0 stub used outside Telegram.
+      if (typeof tg.disableVerticalSwipes === 'function' && tgVersionAtLeast(tg, '7.7')) {
         try { tg.disableVerticalSwipes(); } catch (e) {}
       }
-      if (typeof tg.setHeaderColor === 'function') {
-        try { tg.setHeaderColor('bg_color'); } catch (e) {}
-      }
-      if (typeof tg.setBackgroundColor === 'function') {
-        try { tg.setBackgroundColor('bg_color'); } catch (e) {}
+      if (tgVersionAtLeast(tg, '6.1')) {
+        if (typeof tg.setHeaderColor === 'function') {
+          try { tg.setHeaderColor('bg_color'); } catch (e) {}
+        }
+        if (typeof tg.setBackgroundColor === 'function') {
+          try { tg.setBackgroundColor('bg_color'); } catch (e) {}
+        }
       }
       if (typeof tg.onEvent === 'function') tg.onEvent('themeChanged', applyTheme);
     }
