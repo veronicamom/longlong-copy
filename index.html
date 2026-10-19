@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko" data-state="loading">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+  <title>복사하기</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9C%82%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page-bg: #ffffff;
+      --page-text: #1c1c1e;
+      --page-hint: #6d6d72;
+      --page-button: #2481cc;
+      --page-button-text: #ffffff;
+      --page-secondary: #f2f2f7;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #1c1c1e;
+        --page-text: #f2f2f7;
+        --page-hint: #98989d;
+        --page-button: #2ea6ff;
+        --page-button-text: #ffffff;
+        --page-secondary: #2c2c2e;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: var(--tg-theme-bg-color, var(--page-bg));
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100%;
+      min-height: 100dvh;
+      background: var(--tg-theme-bg-color, var(--page-bg));
+      color: var(--tg-theme-text-color, var(--page-text));
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(640px, 100%);
+      margin: 0 auto;
+      padding:
+        calc(16px + env(safe-area-inset-top))
+        calc(16px + env(safe-area-inset-right))
+        calc(16px + env(safe-area-inset-bottom))
+        calc(16px + env(safe-area-inset-left));
+    }
+
+    h1 {
+      margin: 4px 0 6px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .hint {
+      margin: 0 0 14px;
+      color: var(--tg-theme-hint-color, var(--page-hint));
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .status,
+    textarea {
+      width: 100%;
+      margin: 0;
+      border: 0;
+      border-radius: 14px;
+      background: var(--tg-theme-secondary-bg-color, var(--page-secondary));
+      color: inherit;
+    }
+
+    .status {
+      padding: 20px 16px;
+      min-height: 12rem;
+      color: var(--tg-theme-hint-color, var(--page-hint));
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    textarea {
+      display: block;
+      resize: none;
+      padding: 16px;
+      min-height: 12rem;
+      overflow: auto;
+      font: inherit;
+      font-size: 18px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+      caret-color: transparent;
+    }
+
+    textarea:focus {
+      outline: 2px solid var(--tg-theme-button-color, var(--page-button));
+      outline-offset: 2px;
+    }
+
+    ::selection {
+      background: var(--tg-theme-button-color, var(--page-button));
+      color: var(--tg-theme-button-text-color, var(--page-button-text));
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      flex: 1;
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 12px;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #copy {
+      background: var(--tg-theme-button-color, var(--page-button));
+      color: var(--tg-theme-button-text-color, var(--page-button-text));
+    }
+
+    #close {
+      background: var(--tg-theme-secondary-bg-color, var(--page-secondary));
+      color: var(--tg-theme-text-color, var(--page-text));
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--tg-theme-button-color, var(--page-button));
+      outline-offset: 2px;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(24px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(8px);
+      max-width: calc(100% - 32px);
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: var(--tg-theme-button-color, var(--page-button));
+      color: var(--tg-theme-button-text-color, var(--page-button-text));
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toast { transition: none; }
+    }
+  </style>
+  <script>
+    'use strict';
+
+    // Message text arrives only in the URL fragment: #t=, #b=, or #z=.
+    // Read it into memory and drop those keys before telegram-web-app.js
+    // stores the hash parameters for the session.
+
+    var MESSAGES = {
+      empty: '복사할 내용이 없어요. 롱롱이 메시지 아래의 버튼을 눌러 다시 열어 주세요.',
+      format: '내용을 읽지 못했어요. 링크가 잘렸거나 형식이 잘못된 것 같아요.',
+      unsupported: '이 브라우저에서는 압축된 링크를 풀 수 없어요. 봇에서 압축 없는 링크로 다시 보내 달라고 해 주세요.'
+    };
+
+    function splitFragment(frag) {
+      var parts = String(frag || '').replace(/^#/, '').split('&');
+      var ours = '';
+      var rest = [];
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i];
+        if (!part) continue;
+        var eq = part.indexOf('=');
+        var key = eq === -1 ? part : part.slice(0, eq);
+        if (!ours && (key === 't' || key === 'b' || key === 'z')) ours = part;
+        else rest.push(part);
+      }
+      return { ours: ours, rest: rest.join('&') };
+    }
+
+    function takeFragmentFromLocation() {
+      var href = location.href;
+      var hashIndex = href.indexOf('#');
+      if (hashIndex === -1) return '';
+      var split = splitFragment(href.slice(hashIndex + 1));
+      if (split.ours) {
+        var next = location.pathname + location.search + (split.rest ? '#' + split.rest : '');
+        try { history.replaceState(null, '', next); } catch (e) {}
+      }
+      return split.ours;
+    }
+
+    function decodePlain(value) {
+      try {
+        return decodeURIComponent(value);
+      } catch (e) {
+        if (/%[0-9A-Fa-f]{2}/.test(value)) {
+          var err = new Error('bad-plain');
+          err.code = 'format';
+          throw err;
+        }
+        return value;
+      }
+    }
+
+    function percentDecodeToken(value) {
+      if (value.indexOf('%') === -1) return value;
+      try {
+        return decodeURIComponent(value);
+      } catch (e) {
+        var err = new Error('bad-token');
+        err.code = 'format';
+        throw err;
+      }
+    }
+
+    function base64UrlToBytes(input) {
+      var cleaned = percentDecodeToken(input).replace(/[\s\r\n]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      if (!cleaned) return new Uint8Array(0);
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
+        var bad = new Error('bad-base64');
+        bad.code = 'format';
+        throw bad;
+      }
+      var pad = cleaned.length % 4 === 0 ? '' : '===='.slice(cleaned.length % 4);
+      var binary;
+      try {
+        binary = atob(cleaned + pad);
+      } catch (e) {
+        var err = new Error('bad-base64');
+        err.code = 'format';
+        throw err;
+      }
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    function bytesToText(bytes) {
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+
+    function decodeBase64Url(value) {
+      return bytesToText(base64UrlToBytes(value));
+    }
+
+    function decodeDeflate(value) {
+      if (typeof DecompressionStream !== 'function') {
+        var unsupported = new Error('unsupported');
+        unsupported.code = 'unsupported';
+        return Promise.reject(unsupported);
+      }
+      var bytes;
+      try {
+        bytes = base64UrlToBytes(value);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      var stream;
+      try {
+        stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      } catch (err) {
+        err.code = 'format';
+        return Promise.reject(err);
+      }
+      return new Response(stream).arrayBuffer().then(function (buf) {
+        return bytesToText(new Uint8Array(buf));
+      }, function () {
+        var err = new Error('deflate');
+        err.code = 'format';
+        throw err;
+      });
+    }
+
+    function asResult(text) {
+      if (!text) return { state: 'empty' };
+      return { state: 'ready', text: text };
+    }
+
+    function decodeHash(hash) {
+      var ours = splitFragment(hash).ours;
+      if (!ours) return Promise.resolve({ state: 'empty' });
+      var eq = ours.indexOf('=');
+      var key = ours.slice(0, eq);
+      var value = ours.slice(eq + 1);
+      if (!value) return Promise.resolve({ state: 'empty' });
+      try {
+        if (key === 't') return Promise.resolve(asResult(decodePlain(value)));
+        if (key === 'b') return Promise.resolve(asResult(decodeBase64Url(value)));
+        return decodeDeflate(value).then(asResult, function (err) {
+          return { state: 'error', reason: err && err.code === 'unsupported' ? 'unsupported' : 'format' };
+        });
+      } catch (err) {
+        return Promise.resolve({ state: 'error', reason: 'format' });
+      }
+    }
+
+    var LonglongCopy = {
+      splitFragment: splitFragment,
+      takeFragmentFromLocation: takeFragmentFromLocation,
+      decodeHash: decodeHash
+    };
+    globalThis.LonglongCopy = LonglongCopy;
+
+    var capturedFragment = '';
+    try { capturedFragment = takeFragmentFromLocation(); } catch (e) {}
+
+    var renderSeq = 0;
+    var toastTimer = 0;
+    var booted = false;
+
+    function fitTextarea() {
+      var ta = document.getElementById('text');
+      if (!ta || ta.hidden) return;
+      var actions = document.querySelector('.actions');
+      ta.style.height = 'auto';
+      var top = ta.getBoundingClientRect().top;
+      var actionsH = actions ? actions.offsetHeight : 0;
+      var available = window.innerHeight - top - actionsH - 28;
+      if (available < 220) available = 220;
+      var next = ta.scrollHeight;
+      if (next < 220) next = 220;
+      if (next > available) next = available;
+      ta.style.height = next + 'px';
+    }
+
+    function applyResult(result) {
+      var textarea = document.getElementById('text');
+      var status = document.getElementById('status');
+      var hint = document.getElementById('hint');
+      var copyBtn = document.getElementById('copy');
+      var root = document.documentElement;
+      root.dataset.state = result.state;
+      if (result.reason) root.dataset.reason = result.reason;
+      else delete root.dataset.reason;
+
+      if (result.state === 'ready') {
+        textarea.value = result.text;
+        textarea.hidden = false;
+        status.hidden = true;
+        status.textContent = '';
+        hint.hidden = false;
+        copyBtn.disabled = false;
+        fitTextarea();
+        return;
+      }
+
+      textarea.value = '';
+      textarea.hidden = true;
+      hint.hidden = true;
+      status.hidden = false;
+      status.textContent = result.state === 'error'
+        ? (MESSAGES[result.reason] || MESSAGES.format)
+        : MESSAGES.empty;
+      copyBtn.disabled = true;
+    }
+
+    function render() {
+      var seq = ++renderSeq;
+      document.documentElement.dataset.state = 'loading';
+      delete document.documentElement.dataset.reason;
+      LonglongCopy.decodeHash(capturedFragment).then(function (result) {
+        if (seq !== renderSeq) return;
+        applyResult(result);
+      });
+    }
+
+    function showToast(message) {
+      var toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () {
+        toast.classList.remove('show');
+      }, 1600);
+    }
+
+    function fallbackCopy(text) {
+      var ta = document.getElementById('text');
+      var start = ta.selectionStart;
+      var end = ta.selectionEnd;
+      var scroll = ta.scrollTop;
+      var ok = false;
+      try {
+        ta.focus();
+        ta.setSelectionRange(0, text.length);
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+      try {
+        ta.setSelectionRange(start, end);
+        ta.scrollTop = scroll;
+      } catch (e) {}
+      return ok;
+    }
+
+    function copyAll() {
+      var text = document.getElementById('text').value;
+      if (!text) return;
+      var clipboard = navigator.clipboard;
+      if (clipboard && typeof clipboard.writeText === 'function' && window.isSecureContext) {
+        clipboard.writeText(text).then(function () {
+          showToast('복사됐어요');
+        }, function () {
+          showToast(fallbackCopy(text) ? '복사됐어요' : '복사하지 못했어요');
+        });
+        return;
+      }
+      showToast(fallbackCopy(text) ? '복사됐어요' : '복사하지 못했어요');
+    }
+
+    function closeApp() {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg && typeof tg.close === 'function') tg.close();
+    }
+
+    function applyTheme() {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (!tg || !tg.themeParams) return;
+      var map = {
+        bg_color: '--tg-theme-bg-color',
+        text_color: '--tg-theme-text-color',
+        hint_color: '--tg-theme-hint-color',
+        link_color: '--tg-theme-link-color',
+        button_color: '--tg-theme-button-color',
+        button_text_color: '--tg-theme-button-text-color',
+        secondary_bg_color: '--tg-theme-secondary-bg-color',
+        header_bg_color: '--tg-theme-header-bg-color',
+        accent_text_color: '--tg-theme-accent-text-color',
+        section_bg_color: '--tg-theme-section-bg-color',
+        section_header_text_color: '--tg-theme-section-header-text-color',
+        subtitle_text_color: '--tg-theme-subtitle-text-color',
+        destructive_text_color: '--tg-theme-destructive-text-color'
+      };
+      var rootStyle = document.documentElement.style;
+      var params = tg.themeParams;
+      for (var key in map) {
+        if (Object.prototype.hasOwnProperty.call(params, key) && params[key]) {
+          rootStyle.setProperty(map[key], params[key]);
+        }
+      }
+      if (params.bg_color) {
+        var metas = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', params.bg_color);
+      }
+      if (tg.colorScheme === 'dark' || tg.colorScheme === 'light') {
+        document.documentElement.style.colorScheme = tg.colorScheme;
+      }
+    }
+
+    function bootTelegram() {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (!tg) return;
+      applyTheme();
+      try { tg.ready(); } catch (e) {}
+      try { tg.expand(); } catch (e) {}
+      if (typeof tg.disableVerticalSwipes === 'function') {
+        try { tg.disableVerticalSwipes(); } catch (e) {}
+      }
+      if (typeof tg.setHeaderColor === 'function') {
+        try { tg.setHeaderColor('bg_color'); } catch (e) {}
+      }
+      if (typeof tg.setBackgroundColor === 'function') {
+        try { tg.setBackgroundColor('bg_color'); } catch (e) {}
+      }
+      if (typeof tg.onEvent === 'function') tg.onEvent('themeChanged', applyTheme);
+    }
+
+    function onHashChange() {
+      try { capturedFragment = takeFragmentFromLocation(); } catch (e) { capturedFragment = ''; }
+      render();
+    }
+
+    function init() {
+      if (booted || !document.getElementById('text')) return;
+      booted = true;
+      document.getElementById('copy').addEventListener('click', copyAll);
+      document.getElementById('close').addEventListener('click', closeApp);
+      window.addEventListener('hashchange', onHashChange);
+      window.addEventListener('resize', fitTextarea);
+      render();
+      bootTelegram();
+    }
+  </script>
+</head>
+<body>
+  <main>
+    <h1>복사하기</h1>
+    <p id="hint" class="hint" hidden>길게 눌러 원하는 부분만 선택한 뒤 복사하세요.</p>
+    <p id="status" class="status" hidden></p>
+    <label class="sr-only" for="text">복사할 내용</label>
+    <textarea id="text" rows="8" readonly spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" translate="no" wrap="soft" hidden></textarea>
+    <div class="actions">
+      <button type="button" id="copy" disabled>전체 복사</button>
+      <button type="button" id="close">닫기</button>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript><p>이 페이지는 자바스크립트가 필요해요.</p></noscript>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script>init();</script>
+</body>
+</html>
