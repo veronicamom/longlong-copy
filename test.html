@@ -103,12 +103,27 @@
       }
       var doc = iframe.contentDocument;
       var value = doc.getElementById('text').value;
-      var stored = '';
-      try { stored = JSON.stringify(sessionStorage) + JSON.stringify(localStorage); } catch (e) {}
+      var stored = dumpStorage(iframe.contentWindow);
       var leaked = expect.text && stored.indexOf(expect.text) !== -1;
       iframe.remove();
       var ok = state === expect.state && value === (expect.text || '') && !leaked;
       return { ok: ok, detail: 'state=' + state + (leaked ? ' leaked' : '') + (value === (expect.text || '') ? '' : ' value-mismatch') };
+    }
+
+    function dumpStorage(win) {
+      var out = [];
+      if (!win) return '';
+      function collect(store) {
+        try {
+          for (var i = 0; i < store.length; i++) {
+            var key = store.key(i);
+            out.push(String(key) + '=' + String(store.getItem(key)));
+          }
+        } catch (e) {}
+      }
+      collect(win.sessionStorage);
+      collect(win.localStorage);
+      return out.join('\n');
     }
 
     function line(ok, label, detail) {
@@ -147,6 +162,139 @@
       var invalid = await check('b=!!!!', { state: 'error', text: '' });
       if (!invalid.ok) failed += 1;
       lines.push(line(invalid.ok, 'bad base64', invalid.detail));
+
+      function encodeJ(obj) {
+        return 'j=' + bytesToBase64Url(new TextEncoder().encode(JSON.stringify(obj)));
+      }
+
+      async function inspect(frag) {
+        var iframe = await openFragment(frag);
+        var state;
+        try {
+          state = await waitForState(iframe);
+        } catch (err) {
+          iframe.remove();
+          return { ok: false, detail: err.message };
+        }
+        var doc = iframe.contentDocument;
+        var text = doc.getElementById('text');
+        var view = doc.getElementById('view');
+        var title = doc.getElementById('title');
+        var map = doc.querySelector('iframe.map');
+        var stored = dumpStorage(iframe.contentWindow);
+        var info = {
+          state: state,
+          mode: doc.documentElement.dataset.mode || '',
+          title: title ? title.textContent : '',
+          value: text.value,
+          hidden: !!text.hidden,
+          viewHidden: !view || view.hidden,
+          labels: Array.prototype.map.call(doc.querySelectorAll('.link-label'), function (n) { return n.textContent; }),
+          place: (doc.querySelector('.place-name') || {}).textContent || '',
+          address: (doc.querySelector('.address') || {}).textContent || '',
+          headings: Array.prototype.map.call(doc.querySelectorAll('.section h3'), function (n) { return n.textContent; }),
+          buttons: Array.prototype.map.call(doc.querySelectorAll('#view button'), function (n) { return n.textContent; }),
+          map: map ? map.getAttribute('src') || '' : '',
+          stored: stored
+        };
+        iframe.remove();
+        return info;
+      }
+
+      function expectView(name, info, expect) {
+        var problems = [];
+        if (info.detail && !info.state) problems.push(info.detail);
+        Object.keys(expect).forEach(function (key) {
+          var actual = info[key];
+          var wanted = expect[key];
+          var same = Array.isArray(wanted)
+            ? JSON.stringify(actual) === JSON.stringify(wanted)
+            : actual === wanted;
+          if (!same) problems.push(key + '=' + JSON.stringify(actual));
+        });
+        if (expect.value && info.stored && info.stored.indexOf(expect.value) !== -1) problems.push('leaked');
+        if (!problems.length) lines.push(line(true, name));
+        else {
+          failed += 1;
+          lines.push(line(false, name, problems.join('; ')));
+        }
+      }
+
+      var linkText = '안내문과 메뉴를 확인해 주세요.\nhttps://example.com/guide\nhttps://example.com/menu';
+      var linkInfo = await inspect(encodeJ({
+        v: 2,
+        title: '오늘 볼 링크',
+        text: linkText,
+        links: [
+          { url: 'https://example.com/guide', title: '안내문' },
+          { url: 'https://example.com/menu', title: '메뉴' }
+        ]
+      }));
+      expectView('view links', linkInfo, {
+        state: 'ready',
+        mode: 'view',
+        title: '오늘 볼 링크',
+        value: linkText,
+        hidden: false,
+        labels: ['안내문', '메뉴'],
+        buttons: ['열기', '복사', '열기', '복사']
+      });
+
+      var placeText = '성수역 3번 출구에서 도보 5분. 🌤️';
+      var placeInfo = await inspect(encodeJ({
+        v: 2,
+        title: '만나는 곳',
+        text: placeText,
+        places: [{
+          name: '성수 카페',
+          address: '서울 성동구 연무장길 12',
+          lat: 37.544577,
+          lng: 127.055961,
+          map_url: 'https://map.kakao.com/link/map/성수카페'
+        }]
+      }));
+      var placeProblems = [];
+      if (placeInfo.title !== '만나는 곳') placeProblems.push('title');
+      if (placeInfo.place !== '성수 카페') placeProblems.push('place');
+      if (placeInfo.address !== '서울 성동구 연무장길 12') placeProblems.push('address');
+      if (placeInfo.value !== placeText) placeProblems.push('value');
+      if (placeInfo.buttons.indexOf('지도 열기') === -1 || placeInfo.buttons.indexOf('주소 복사') === -1) placeProblems.push('buttons');
+      if (placeInfo.map.indexOf('openstreetmap.org/export/embed.html') === -1) placeProblems.push('map');
+      if (placeInfo.map.indexOf('apikey') !== -1) placeProblems.push('apikey');
+      if (placeInfo.stored.indexOf('성수 카페') !== -1) placeProblems.push('leaked');
+      if (placeProblems.length) failed += 1;
+      lines.push(line(!placeProblems.length, 'view place', placeProblems.join('; ')));
+
+      var noCoords = await inspect(encodeJ({
+        v: 2,
+        places: [{ name: '카페', address: '서울 성동구', map_url: 'https://map.kakao.com/link/map/cafe' }]
+      }));
+      expectView('view place without coordinates', noCoords, {
+        state: 'ready',
+        place: '카페',
+        map: ''
+      });
+
+      var sectionText = '# 가는 길\n지하철 2호선 성수역 3번 출구.\n\n■ 시간\n오전 10시에 만나요.\n\n[준비물]\n- 신분증\n- 물\n\n1. 일정\n카페에서 출발해요.\n';
+      var sectionInfo = await inspect(encodeJ({ v: 2, title: '주말 안내', text: sectionText }));
+      expectView('view sections', sectionInfo, {
+        state: 'ready',
+        mode: 'view',
+        title: '주말 안내',
+        value: sectionText,
+        hidden: true,
+        headings: ['가는 길', '시간', '준비물', '1. 일정']
+      });
+
+      var plainInfo = await inspect(encodeT('안녕하세요, 롱롱이입니다.'));
+      expectView('plain textarea', plainInfo, {
+        state: 'ready',
+        mode: 'plain',
+        title: '복사하기',
+        value: '안녕하세요, 롱롱이입니다.',
+        hidden: false,
+        viewHidden: true
+      });
 
       var out = document.getElementById('out');
       out.textContent = lines.join('\n') + '\n\n' + (failed ? failed + ' failed' : 'all passed');
