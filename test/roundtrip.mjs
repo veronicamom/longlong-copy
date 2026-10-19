@@ -52,6 +52,7 @@ function py(code, stdin = '') {
     cwd: new URL('..', import.meta.url),
     input: stdin,
     encoding: 'utf8',
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
   });
   if (res.status !== 0) {
     throw new Error(res.stderr || `python exited ${res.status}`);
