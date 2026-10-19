@@ -120,10 +120,31 @@
       color: var(--tg-theme-button-text-color, var(--page-button-text));
     }
 
+    .footer { margin-top: 12px; }
+
+    html[data-mode="view"] .footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 2;
+      width: min(640px, 100%);
+      margin: 0 auto;
+      padding:
+        8px
+        calc(16px + env(safe-area-inset-right))
+        calc(8px + env(safe-area-inset-bottom))
+        calc(16px + env(safe-area-inset-left));
+      background: var(--tg-theme-bg-color, var(--page-bg));
+    }
+
+    html[data-mode="view"] main {
+      padding-bottom: calc(92px + env(safe-area-inset-bottom));
+    }
+
     .actions {
       display: flex;
       gap: 8px;
-      margin-top: 12px;
     }
 
     button {
@@ -746,7 +767,7 @@
     function fitTextarea() {
       var ta = document.getElementById('text');
       if (!ta || ta.hidden) return;
-      var actions = document.querySelector('.actions');
+      var actions = document.querySelector('.footer') || document.querySelector('.actions');
       ta.style.height = 'auto';
       var top = ta.getBoundingClientRect().top;
       var actionsH = actions ? actions.offsetHeight : 0;
@@ -930,6 +951,11 @@
 
     function render() {
       var seq = ++renderSeq;
+      var toast = document.getElementById('toast');
+      if (toast) {
+        toast.classList.remove('show');
+        toast.textContent = '';
+      }
       document.documentElement.dataset.state = 'loading';
       delete document.documentElement.dataset.reason;
       LonglongCopy.decodeHash(capturedFragment).then(function (result) {
@@ -953,7 +979,6 @@
       if (helper) return helper;
       helper = document.createElement('textarea');
       helper.id = 'copy-helper';
-      helper.setAttribute('aria-hidden', 'true');
       helper.tabIndex = -1;
       helper.readOnly = true;
       helper.style.position = 'fixed';
@@ -987,6 +1012,8 @@
           ta.setSelectionRange(start, end);
           ta.scrollTop = scroll;
         } catch (e) {}
+      } else {
+        try { node.blur(); } catch (e) {}
       }
       return ok;
     }
@@ -1053,6 +1080,7 @@
       if (!copier) return;
       event.preventDefault();
       copyText(copier.getAttribute('data-copy') || '');
+      try { copier.focus(); } catch (e) {}
     }
 
     function closeApp() {
@@ -1157,11 +1185,13 @@
     <div id="view" hidden></div>
     <label class="sr-only" for="text">복사할 내용</label>
     <textarea id="text" rows="8" readonly spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" translate="no" wrap="soft" hidden></textarea>
-    <div class="actions">
-      <button type="button" id="copy" disabled>전체 복사</button>
-      <button type="button" id="close">닫기</button>
+    <div class="footer">
+      <div class="actions">
+        <button type="button" id="copy" disabled>전체 복사</button>
+        <button type="button" id="close">닫기</button>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
   <noscript><p>이 페이지는 자바스크립트가 필요해요.</p></noscript>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
