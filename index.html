@@ -159,26 +159,18 @@
     }
 
     .toast {
-      position: fixed;
-      left: 50%;
-      bottom: calc(24px + env(safe-area-inset-bottom));
-      transform: translateX(-50%) translateY(8px);
-      max-width: calc(100% - 32px);
+      display: none;
+      width: fit-content;
+      margin: 14px auto 0;
       padding: 10px 16px;
       border-radius: 999px;
       background: var(--tg-theme-button-color, var(--page-button));
       color: var(--tg-theme-button-text-color, var(--page-button-text));
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s ease, transform 0.2s ease;
     }
 
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast.show { display: block; }
 
     .sr-only {
       position: absolute;
@@ -192,9 +184,6 @@
       border: 0;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .toast { transition: none; }
-    }
   </style>
   <script>
     'use strict';
@@ -418,7 +407,7 @@
       clearTimeout(toastTimer);
       toastTimer = setTimeout(function () {
         toast.classList.remove('show');
-      }, 1600);
+      }, 4000);
     }
 
     function fallbackCopy(text) {
@@ -445,15 +434,31 @@
       var text = document.getElementById('text').value;
       if (!text) return;
       var clipboard = navigator.clipboard;
-      if (clipboard && typeof clipboard.writeText === 'function' && window.isSecureContext) {
-        clipboard.writeText(text).then(function () {
-          showToast('복사됐어요');
-        }, function () {
-          showToast(fallbackCopy(text) ? '복사됐어요' : '복사하지 못했어요');
-        });
+      var canClipboard = !!(clipboard && typeof clipboard.writeText === 'function' && window.isSecureContext);
+      // execCommand has to run inside the click. A clipboard permission
+      // prompt can leave writeText pending, so the sync copy is what
+      // makes the toast show immediately. writeText still runs when it
+      // exists, which is what Telegram's webview actually grants.
+      var syncOk = fallbackCopy(text);
+      if (!canClipboard) {
+        showToast(syncOk ? '복사됐어요' : '복사하지 못했어요');
         return;
       }
-      showToast(fallbackCopy(text) ? '복사됐어요' : '복사하지 못했어요');
+      var settled = false;
+      function finish(ok) {
+        if (settled) return;
+        settled = true;
+        showToast(ok ? '복사됐어요' : '복사하지 못했어요');
+      }
+      if (syncOk) finish(true);
+      var timer = setTimeout(function () { finish(syncOk); }, 700);
+      clipboard.writeText(text).then(function () {
+        clearTimeout(timer);
+        finish(true);
+      }, function () {
+        clearTimeout(timer);
+        finish(syncOk);
+      });
     }
 
     function closeApp() {
@@ -559,8 +564,8 @@
       <button type="button" id="copy" disabled>전체 복사</button>
       <button type="button" id="close">닫기</button>
     </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <noscript><p>이 페이지는 자바스크립트가 필요해요.</p></noscript>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>init();</script>
