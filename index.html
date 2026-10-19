@@ -127,7 +127,6 @@
     }
 
     button {
-      flex: 1;
       appearance: none;
       border: 0;
       border-radius: 12px;
@@ -136,6 +135,128 @@
       font-size: 16px;
       font-weight: 600;
       cursor: pointer;
+    }
+
+    .actions > button { flex: 1; }
+
+    #view { margin: 0 0 12px; }
+
+    .card {
+      margin: 0 0 12px;
+      padding: 14px;
+      border-radius: 14px;
+      background: var(--tg-theme-secondary-bg-color, var(--page-secondary));
+    }
+
+    .kicker {
+      margin: 0 0 8px;
+      color: var(--tg-theme-hint-color, var(--page-hint));
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .link-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .link-copy {
+      min-width: 0;
+      flex: 1 1 12rem;
+    }
+
+    .link-label {
+      color: var(--tg-theme-link-color, var(--page-button));
+      font-weight: 600;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .link-domain {
+      margin: 2px 0 0;
+      color: var(--tg-theme-hint-color, var(--page-hint));
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .row-actions,
+    .section-head {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .card > .row-actions {
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .section-head { justify-content: space-between; margin-bottom: 6px; }
+
+    .section-head h3 {
+      margin: 0;
+      flex: 1;
+      min-width: 0;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .place-name {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .address,
+    .para,
+    .bullets {
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+
+    .address,
+    .para {
+      margin: 6px 0 0;
+      font-size: 17px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .bullets {
+      margin: 6px 0 0;
+      padding-left: 1.2em;
+    }
+
+    .bullets li { margin: 2px 0; }
+
+    .map {
+      display: block;
+      width: 100%;
+      height: 180px;
+      margin-top: 10px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--tg-theme-bg-color, var(--page-bg));
+    }
+
+    .mini {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      background: var(--tg-theme-button-color, var(--page-button));
+      color: var(--tg-theme-button-text-color, var(--page-button-text));
+    }
+
+    .mini.ghost {
+      background: var(--tg-theme-bg-color, var(--page-bg));
+      color: var(--tg-theme-link-color, var(--page-button));
     }
 
     #copy {
@@ -188,7 +309,7 @@
   <script>
     'use strict';
 
-    // Message text arrives only in the URL fragment: #t=, #b=, or #z=.
+    // Message text arrives only in the URL fragment: #t=, #b=, #z=, or #j=.
     // Read it into memory and drop those keys before telegram-web-app.js
     // stores the hash parameters for the session.
 
@@ -207,7 +328,7 @@
         if (!part) continue;
         var eq = part.indexOf('=');
         var key = eq === -1 ? part : part.slice(0, eq);
-        if (!ours && (key === 't' || key === 'b' || key === 'z')) ours = part;
+        if (!ours && (key === 't' || key === 'b' || key === 'z' || key === 'j')) ours = part;
         else rest.push(part);
       }
       return { ours: ours, rest: rest.join('&') };
@@ -279,17 +400,11 @@
       return bytesToText(base64UrlToBytes(value));
     }
 
-    function decodeDeflate(value) {
+    function inflateBytes(bytes) {
       if (typeof DecompressionStream !== 'function') {
         var unsupported = new Error('unsupported');
         unsupported.code = 'unsupported';
         return Promise.reject(unsupported);
-      }
-      var bytes;
-      try {
-        bytes = base64UrlToBytes(value);
-      } catch (err) {
-        return Promise.reject(err);
       }
       var stream;
       try {
@@ -307,9 +422,288 @@
       });
     }
 
+    function decodeDeflate(value) {
+      var bytes;
+      try {
+        bytes = base64UrlToBytes(value);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return inflateBytes(bytes);
+    }
+
+    function safeHttpUrl(value) {
+      if (typeof value !== 'string') return '';
+      var trimmed = value.trim();
+      if (!trimmed) return '';
+      var parsed;
+      try {
+        parsed = new URL(trimmed);
+      } catch (e) {
+        return '';
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      if (!parsed.hostname) return '';
+      return parsed.href;
+    }
+
+    function domainLabel(url) {
+      try {
+        return new URL(url).hostname.replace(/^www\./i, '');
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function extractLinks(text) {
+      var found = [];
+      var seen = {};
+      var source = String(text || '');
+      var re = /https?:\/\/[^\s<>"']+/gi;
+      var match;
+      while ((match = re.exec(source))) {
+        var raw = match[0].replace(/[.,;:!?)]+$/g, '').replace(/[\]}>」』]+$/g, '');
+        var url = safeHttpUrl(raw);
+        if (!url || seen[url]) continue;
+        seen[url] = true;
+        found.push({ url: url, title: '' });
+      }
+      return found;
+    }
+
+    function headingOf(line) {
+      var hash = /^#{1,6}\s*(\S.*)$/.exec(line);
+      if (hash) return hash[1].trim();
+      var square = /^■\s*(\S.*)$/.exec(line);
+      if (square) return square[1].trim();
+      var bracket = /^\[([^\[\]\n]{1,80})\]\s*$/.exec(line);
+      if (bracket && bracket[1].trim()) return bracket[1].trim();
+      var numbered = /^(\d{1,3})\.\s+(\S.*)$/.exec(line);
+      if (numbered && numbered[2].trim().length <= 60) return numbered[1] + '. ' + numbered[2].trim();
+      return '';
+    }
+
+    function parseSections(text) {
+      var lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+      var sections = [];
+      var current = null;
+
+      function open(heading) {
+        current = { heading: heading, blocks: [], gap: false };
+        sections.push(current);
+      }
+
+      function ensure() {
+        if (!current) open('');
+      }
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var heading = headingOf(line);
+        if (heading) {
+          open(heading);
+          continue;
+        }
+        if (!line.trim()) {
+          if (current) current.gap = true;
+          continue;
+        }
+        ensure();
+        var bullet = /^[-*•·・]\s+(\S.*)$/.exec(line);
+        var blocks = current.blocks;
+        var last = blocks[blocks.length - 1];
+        if (bullet) {
+          if (last && last.type === 'ul' && !current.gap) last.items.push(bullet[1]);
+          else blocks.push({ type: 'ul', items: [bullet[1]] });
+        } else if (last && last.type === 'p' && !current.gap) {
+          last.text += '\n' + line;
+        } else {
+          blocks.push({ type: 'p', text: line });
+        }
+        current.gap = false;
+      }
+      return sections;
+    }
+
+    function sectionPlain(section) {
+      var parts = [];
+      if (section.heading) parts.push(section.heading);
+      var blocks = section.blocks || [];
+      for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i];
+        if (block.type === 'ul') {
+          var lines = [];
+          for (var j = 0; j < block.items.length; j++) lines.push('• ' + block.items[j]);
+          if (lines.length) parts.push(lines.join('\n'));
+        } else if (block.text) {
+          parts.push(block.text);
+        }
+      }
+      return parts.join('\n');
+    }
+
+    function coord(value, low, high) {
+      if (typeof value === 'boolean' || typeof value !== 'number') return null;
+      if (!Number.isFinite(value) || value < low || value > high) return null;
+      return value;
+    }
+
+    function normalizePlace(item) {
+      if (!item || typeof item !== 'object') return null;
+      var place = {};
+      if (typeof item.name === 'string' && item.name.trim()) place.name = item.name.trim();
+      if (typeof item.address === 'string' && item.address.trim()) place.address = item.address.trim();
+      var lat = coord(item.lat, -90, 90);
+      var lng = coord(item.lng, -180, 180);
+      if (lat !== null && lng !== null) {
+        place.lat = lat;
+        place.lng = lng;
+      }
+      var mapUrl = safeHttpUrl(item.map_url || item.mapUrl || '');
+      if (mapUrl) place.mapUrl = mapUrl;
+      if (!place.name && !place.address && !place.mapUrl && place.lat == null) return null;
+      return place;
+    }
+
+    function finalizeView(raw) {
+      raw = raw || {};
+      var text = typeof raw.text === 'string' ? raw.text : '';
+      var title = typeof raw.title === 'string' ? raw.title.trim() : '';
+      var links = [];
+      var seen = {};
+      var provided = Array.isArray(raw.links) ? raw.links : [];
+      var i;
+      for (i = 0; i < provided.length; i++) {
+        var item = provided[i] || {};
+        var url = safeHttpUrl(item.url || '');
+        if (!url || seen[url]) continue;
+        seen[url] = true;
+        links.push({ url: url, title: typeof item.title === 'string' ? item.title.trim() : '' });
+      }
+      var detected = extractLinks(text);
+      for (i = 0; i < detected.length; i++) {
+        if (seen[detected[i].url]) continue;
+        seen[detected[i].url] = true;
+        links.push(detected[i]);
+      }
+      var places = [];
+      var mapUrls = {};
+      var givenPlaces = Array.isArray(raw.places) ? raw.places : [];
+      for (i = 0; i < givenPlaces.length; i++) {
+        var place = normalizePlace(givenPlaces[i]);
+        if (!place) continue;
+        places.push(place);
+        if (place.mapUrl) mapUrls[place.mapUrl] = true;
+      }
+      if (places.length) {
+        links = links.filter(function (link) { return !mapUrls[link.url]; });
+      }
+      var sections = text ? parseSections(text) : [];
+      var sectioned = false;
+      for (i = 0; i < sections.length; i++) {
+        if (sections[i].heading) sectioned = true;
+      }
+      var show = !!(title || links.length || places.length || sectioned);
+      return {
+        title: title,
+        text: text,
+        links: links,
+        places: places,
+        sections: sections,
+        sectioned: sectioned,
+        show: show
+      };
+    }
+
+    function composedPlain(view) {
+      var parts = [];
+      if (view.title) parts.push(view.title);
+      var i;
+      for (i = 0; i < view.links.length; i++) {
+        var link = view.links[i];
+        parts.push(link.title ? link.title + '\n' + link.url : link.url);
+      }
+      for (i = 0; i < view.places.length; i++) {
+        var place = view.places[i];
+        if (place.name) parts.push(place.name);
+        if (place.address) parts.push(place.address);
+        if (place.mapUrl) parts.push(place.mapUrl);
+      }
+      return parts.join('\n');
+    }
+
+    function trimNum(n) {
+      return String(Math.round(n * 1e6) / 1e6);
+    }
+
+    function osmEmbed(lat, lng) {
+      if (typeof lat !== 'number' || typeof lng !== 'number') return '';
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return '';
+      var pad = 0.01;
+      var west = Math.max(-180, lng - pad);
+      var south = Math.max(-90, lat - pad);
+      var east = Math.min(180, lng + pad);
+      var north = Math.min(90, lat + pad);
+      return 'https://www.openstreetmap.org/export/embed.html?bbox='
+        + trimNum(west) + '%2C' + trimNum(south) + '%2C' + trimNum(east) + '%2C' + trimNum(north)
+        + '&layer=mapnik&marker=' + trimNum(lat) + '%2C' + trimNum(lng);
+    }
+
+    function decodeJsonText(text) {
+      var data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        var err = new Error('bad-json');
+        err.code = 'format';
+        throw err;
+      }
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        var bad = new Error('bad-json');
+        bad.code = 'format';
+        throw bad;
+      }
+      return data;
+    }
+
+    function decodeStructured(value) {
+      var bytes;
+      try {
+        bytes = base64UrlToBytes(value);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      if (!bytes.length) {
+        var empty = new Error('empty');
+        empty.code = 'format';
+        return Promise.reject(empty);
+      }
+      if (bytes[0] === 0x7b) {
+        try {
+          return Promise.resolve(decodeJsonText(bytesToText(bytes)));
+        } catch (err) {
+          return inflateBytes(bytes).then(decodeJsonText);
+        }
+      }
+      return inflateBytes(bytes).then(decodeJsonText);
+    }
+
     function asResult(text) {
       if (!text) return { state: 'empty' };
-      return { state: 'ready', text: text };
+      return { state: 'ready', text: text, view: finalizeView({ text: text }) };
+    }
+
+    function viewResult(data) {
+      var view = finalizeView(data);
+      var text = view.text;
+      if (!text) text = composedPlain(view);
+      if (!text && !view.show) return { state: 'empty' };
+      return { state: 'ready', text: text, view: view };
+    }
+
+    function failReason(err) {
+      return { state: 'error', reason: err && err.code === 'unsupported' ? 'unsupported' : 'format' };
     }
 
     function decodeHash(hash) {
@@ -322,9 +716,9 @@
       try {
         if (key === 't') return Promise.resolve(asResult(decodePlain(value)));
         if (key === 'b') return Promise.resolve(asResult(decodeBase64Url(value)));
-        return decodeDeflate(value).then(asResult, function (err) {
-          return { state: 'error', reason: err && err.code === 'unsupported' ? 'unsupported' : 'format' };
-        });
+        if (key === 'z') return decodeDeflate(value).then(asResult, failReason);
+        if (key === 'j') return decodeStructured(value).then(viewResult, failReason);
+        return Promise.resolve({ state: 'empty' });
       } catch (err) {
         return Promise.resolve({ state: 'error', reason: 'format' });
       }
@@ -333,7 +727,12 @@
     var LonglongCopy = {
       splitFragment: splitFragment,
       takeFragmentFromLocation: takeFragmentFromLocation,
-      decodeHash: decodeHash
+      decodeHash: decodeHash,
+      extractLinks: extractLinks,
+      parseSections: parseSections,
+      safeHttpUrl: safeHttpUrl,
+      sectionPlain: sectionPlain,
+      osmEmbed: osmEmbed
     };
     globalThis.LonglongCopy = LonglongCopy;
 
@@ -352,11 +751,138 @@
       var top = ta.getBoundingClientRect().top;
       var actionsH = actions ? actions.offsetHeight : 0;
       var available = window.innerHeight - top - actionsH - 28;
-      if (available < 220) available = 220;
+      var floor = document.documentElement.dataset.mode === 'view' ? 140 : 220;
+      if (available < floor) available = floor;
       var next = ta.scrollHeight;
-      if (next < 220) next = 220;
+      if (next < floor) next = floor;
       if (next > available) next = available;
       ta.style.height = next + 'px';
+    }
+
+    function clearNode(node) {
+      if (!node) return;
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function miniButton(label, copyValue, ghost) {
+      var btn = el('button', ghost ? 'mini ghost' : 'mini', label);
+      btn.type = 'button';
+      if (copyValue != null) btn.setAttribute('data-copy', copyValue);
+      return btn;
+    }
+
+    function linkLabel(link) {
+      if (link.title) return link.title;
+      return domainLabel(link.url) || link.url;
+    }
+
+    function renderLink(link) {
+      var row = el('div', 'link-row');
+      var copy = el('div', 'link-copy');
+      var anchor = el('a', 'link-label', linkLabel(link));
+      anchor.href = link.url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      anchor.setAttribute('data-open', link.url);
+      copy.appendChild(anchor);
+      var domain = domainLabel(link.url);
+      if (domain && domain !== linkLabel(link)) copy.appendChild(el('p', 'link-domain', domain));
+      row.appendChild(copy);
+      var actions = el('div', 'row-actions');
+      var open = miniButton('열기');
+      open.setAttribute('data-open', link.url);
+      actions.appendChild(open);
+      actions.appendChild(miniButton('복사', link.url, true));
+      row.appendChild(actions);
+      return row;
+    }
+
+    function renderPlace(place) {
+      var card = el('section', 'card');
+      card.appendChild(el('p', 'kicker', '장소'));
+      if (place.name) card.appendChild(el('p', 'place-name', place.name));
+      if (place.address) card.appendChild(el('p', 'address', place.address));
+      if (place.lat != null && place.lng != null) {
+        var src = osmEmbed(place.lat, place.lng);
+        if (src) {
+          var frame = document.createElement('iframe');
+          frame.className = 'map';
+          frame.src = src;
+          frame.loading = 'lazy';
+          frame.referrerPolicy = 'no-referrer';
+          frame.title = place.name || '지도';
+          card.appendChild(frame);
+        }
+      }
+      var actions = el('div', 'row-actions');
+      if (place.mapUrl) {
+        var open = miniButton('지도 열기');
+        open.setAttribute('data-open', place.mapUrl);
+        actions.appendChild(open);
+      }
+      if (place.address) actions.appendChild(miniButton('주소 복사', place.address, true));
+      if (actions.firstChild) card.appendChild(actions);
+      return card;
+    }
+
+    function renderSection(section) {
+      var plain = sectionPlain(section);
+      if (!plain) return null;
+      var card = el('section', 'card section');
+      var head = el('div', 'section-head');
+      if (section.heading) head.appendChild(el('h3', '', section.heading));
+      head.appendChild(miniButton('복사', plain, true));
+      card.appendChild(head);
+      var blocks = section.blocks || [];
+      for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i];
+        if (block.type === 'ul') {
+          var list = el('ul', 'bullets');
+          for (var j = 0; j < block.items.length; j++) list.appendChild(el('li', '', block.items[j]));
+          card.appendChild(list);
+        } else {
+          card.appendChild(el('p', 'para', block.text));
+        }
+      }
+      return card;
+    }
+
+    function renderView(view) {
+      var root = document.getElementById('view');
+      clearNode(root);
+      if (!root || !view) {
+        if (root) root.hidden = true;
+        return;
+      }
+      var i;
+      if (view.links.length) {
+        var links = el('section', 'card');
+        links.appendChild(el('p', 'kicker', '링크'));
+        for (i = 0; i < view.links.length; i++) links.appendChild(renderLink(view.links[i]));
+        root.appendChild(links);
+      }
+      for (i = 0; i < view.places.length; i++) root.appendChild(renderPlace(view.places[i]));
+      if (view.sectioned) {
+        for (i = 0; i < view.sections.length; i++) {
+          var card = renderSection(view.sections[i]);
+          if (card) root.appendChild(card);
+        }
+      }
+      root.hidden = !root.firstChild;
+    }
+
+    function setTitle(text) {
+      var title = document.getElementById('title');
+      var next = text || '복사하기';
+      if (title) title.textContent = next;
+      document.title = next;
     }
 
     function applyResult(result) {
@@ -370,18 +896,30 @@
       else delete root.dataset.reason;
 
       if (result.state === 'ready') {
-        textarea.value = result.text;
-        textarea.hidden = false;
+        var payload = result.view;
+        var show = !!(payload && payload.show);
+        var sectioned = !!(show && payload.sectioned);
+        textarea.value = result.text || '';
+        textarea.hidden = !textarea.value || sectioned;
+        setTitle(show && payload.title ? payload.title : '');
+        renderView(show ? payload : null);
         status.hidden = true;
         status.textContent = '';
         hint.hidden = false;
-        copyBtn.disabled = false;
+        hint.textContent = sectioned
+          ? '글을 길게 눌러 원하는 부분만 선택할 수 있어요.'
+          : '길게 눌러 원하는 부분만 선택한 뒤 복사하세요.';
+        copyBtn.disabled = !textarea.value;
+        root.dataset.mode = show ? 'view' : 'plain';
         fitTextarea();
         return;
       }
 
       textarea.value = '';
       textarea.hidden = true;
+      setTitle('');
+      renderView(null);
+      delete root.dataset.mode;
       hint.hidden = true;
       status.hidden = false;
       status.textContent = result.state === 'error'
@@ -410,28 +948,50 @@
       }, 4000);
     }
 
+    function copyHelper() {
+      var helper = document.getElementById('copy-helper');
+      if (helper) return helper;
+      helper = document.createElement('textarea');
+      helper.id = 'copy-helper';
+      helper.setAttribute('aria-hidden', 'true');
+      helper.tabIndex = -1;
+      helper.readOnly = true;
+      helper.style.position = 'fixed';
+      helper.style.top = '0';
+      helper.style.left = '0';
+      helper.style.width = '1px';
+      helper.style.height = '1px';
+      helper.style.opacity = '0';
+      document.body.appendChild(helper);
+      return helper;
+    }
+
     function fallbackCopy(text) {
       var ta = document.getElementById('text');
-      var start = ta.selectionStart;
-      var end = ta.selectionEnd;
-      var scroll = ta.scrollTop;
+      var useVisible = ta && !ta.hidden && ta.value === text;
+      var node = useVisible ? ta : copyHelper();
+      var start = useVisible ? ta.selectionStart : 0;
+      var end = useVisible ? ta.selectionEnd : 0;
+      var scroll = useVisible ? ta.scrollTop : 0;
       var ok = false;
+      node.value = text;
       try {
-        ta.focus();
-        ta.setSelectionRange(0, text.length);
+        node.focus();
+        node.setSelectionRange(0, text.length);
         ok = document.execCommand('copy');
       } catch (e) {
         ok = false;
       }
-      try {
-        ta.setSelectionRange(start, end);
-        ta.scrollTop = scroll;
-      } catch (e) {}
+      if (useVisible) {
+        try {
+          ta.setSelectionRange(start, end);
+          ta.scrollTop = scroll;
+        } catch (e) {}
+      }
       return ok;
     }
 
-    function copyAll() {
-      var text = document.getElementById('text').value;
+    function copyText(text) {
       if (!text) return;
       var clipboard = navigator.clipboard;
       var canClipboard = !!(clipboard && typeof clipboard.writeText === 'function' && window.isSecureContext);
@@ -459,6 +1019,40 @@
         clearTimeout(timer);
         finish(syncOk);
       });
+    }
+
+    function copyAll() {
+      copyText(document.getElementById('text').value);
+    }
+
+    function openExternal(url, event, fromAnchor) {
+      var safe = safeHttpUrl(url);
+      if (!safe) return;
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg && typeof tg.openLink === 'function') {
+        if (event) event.preventDefault();
+        try {
+          tg.openLink(safe);
+          return;
+        } catch (e) {}
+      }
+      if (fromAnchor) return;
+      if (event) event.preventDefault();
+      window.open(safe, '_blank', 'noopener,noreferrer');
+    }
+
+    function onViewClick(event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      var opener = target.closest('[data-open]');
+      if (opener) {
+        openExternal(opener.getAttribute('data-open'), event, opener.tagName === 'A');
+        return;
+      }
+      var copier = target.closest('[data-copy]');
+      if (!copier) return;
+      event.preventDefault();
+      copyText(copier.getAttribute('data-copy') || '');
     }
 
     function closeApp() {
@@ -546,6 +1140,8 @@
       booted = true;
       document.getElementById('copy').addEventListener('click', copyAll);
       document.getElementById('close').addEventListener('click', closeApp);
+      var view = document.getElementById('view');
+      if (view) view.addEventListener('click', onViewClick);
       window.addEventListener('hashchange', onHashChange);
       window.addEventListener('resize', fitTextarea);
       render();
@@ -555,9 +1151,10 @@
 </head>
 <body>
   <main>
-    <h1>복사하기</h1>
+    <h1 id="title">복사하기</h1>
     <p id="hint" class="hint" hidden>길게 눌러 원하는 부분만 선택한 뒤 복사하세요.</p>
     <p id="status" class="status" hidden></p>
+    <div id="view" hidden></div>
     <label class="sr-only" for="text">복사할 내용</label>
     <textarea id="text" rows="8" readonly spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" translate="no" wrap="soft" hidden></textarea>
     <div class="actions">

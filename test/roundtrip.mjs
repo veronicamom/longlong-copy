@@ -37,6 +37,7 @@ function loadApi({ decompression = true } = {}) {
       readyState: 'loading',
     },
     navigator: {},
+    URL,
     window: null,
   };
   if (decompression) sandbox.DecompressionStream = DecompressionStream;
@@ -58,6 +59,19 @@ function py(code, stdin = '') {
     throw new Error(res.stderr || `python exited ${res.status}`);
   }
   return res.stdout;
+}
+
+function pyStructured(payload) {
+  const stdout = py(
+    [
+      'import json, sys',
+      'from encode_fragment import encode_structured',
+      'result = encode_structured(json.loads(sys.stdin.read()))',
+      'json.dump(result, sys.stdout)',
+    ].join('\n'),
+    JSON.stringify(payload),
+  );
+  return JSON.parse(stdout);
 }
 
 function pyEncode(text) {
@@ -186,6 +200,169 @@ assert.match(readme, /\{"text":"✂️ 일부 복사","web_app":\{"url":"https:\
 assert.match(readme, /Settings → Pages|Settings > Pages/);
 assert.match(readme, /wbits=-15/);
 assert.match(readme, /2000/);
+
+const plainHello = await decode(api, pyEncode('안녕하세요').t);
+assert.equal(plainHello.text, '안녕하세요');
+assert.equal(plainHello.view.show, false);
+assert.equal(plainHello.view.sectioned, false);
+
+const linkedPlain = await decode(api, `#t=${encodeURIComponent('메뉴 https://example.com/menu.')}`);
+assert.equal(linkedPlain.text, '메뉴 https://example.com/menu.');
+assert.equal(linkedPlain.view.show, true);
+assert.deepEqual([...linkedPlain.view.links].map((link) => String(link.url)), ['https://example.com/menu']);
+assert.equal(linkedPlain.view.sectioned, false);
+passed += 2;
+
+assert.equal(api.safeHttpUrl('javascript:alert(1)'), '');
+assert.equal(api.safeHttpUrl('https://example.com/a'), 'https://example.com/a');
+assert.deepEqual(
+  [...api.extractLinks('끝 https://example.com/guide). 그리고 https://example.com/guide')].map((link) => String(link.url)),
+  ['https://example.com/guide'],
+);
+const embed = api.osmEmbed(37.544577, 127.055961);
+assert.match(embed, /^https:\/\/www\.openstreetmap\.org\/export\/embed\.html\?/);
+assert.equal(embed.includes('apikey'), false);
+assert.equal(embed.includes('marker=37.544577%2C127.055961'), true);
+assert.equal(api.osmEmbed(999, 127), '');
+assert.equal(api.osmEmbed(37.5, Number.NaN), '');
+passed += 1;
+
+const sectionText = [
+  '# 가는 길',
+  '지하철 2호선 성수역 3번 출구.',
+  '',
+  '■ 시간',
+  '오전 10시에 만나요.',
+  '',
+  '[준비물]',
+  '- 신분증',
+  '* 물',
+  '',
+  '1. 일정',
+  '카페에서 출발해요. 🌤️',
+  '',
+  `2. ${'긴'.repeat(70)} 문장입니다.`,
+].join('\n');
+const sections = api.parseSections(sectionText);
+assert.deepEqual([...sections].map((section) => String(section.heading)), ['가는 길', '시간', '준비물', '1. 일정']);
+assert.equal(sections[2].blocks[0].type, 'ul');
+assert.deepEqual([...sections[2].blocks[0].items].map(String), ['신분증', '물']);
+assert.equal([...sections[3].blocks].some((block) => block.type === 'p' && String(block.text).includes('긴긴')), true);
+assert.match(api.sectionPlain(sections[2]), /^준비물\n• 신분증\n• 물$/);
+const sectionDecoded = await decode(api, pyEncode(sectionText).b);
+assert.equal(sectionDecoded.text, sectionText);
+assert.equal(sectionDecoded.view.sectioned, true);
+assert.equal(sectionDecoded.view.show, true);
+passed += 1;
+
+const mapUrl = 'https://map.kakao.com/link/map/성수카페,37.544577,127.055961';
+const structured = {
+  title: '만나는 곳',
+  text: `성수역 3번 출구에서 도보 5분. 🌤️\n${mapUrl}\nhttps://example.com/guide.`,
+  links: [{ url: 'https://example.com/guide', title: '안내문' }],
+  places: [{
+    name: '성수 카페',
+    address: '서울 성동구 연무장길 12',
+    lat: 37.544577,
+    lng: 127.055961,
+    map_url: mapUrl,
+  }],
+};
+const packed = pyStructured(structured);
+assert.equal(typeof packed.url, 'string');
+assert.ok(packed.length <= 2000);
+assert.ok(packed.fragment.startsWith('j='));
+const round = await decode(api, packed.fragment);
+assert.equal(round.state, 'ready');
+assert.equal(round.text, structured.text);
+assert.equal(round.view.title, '만나는 곳');
+assert.equal(round.view.places.length, 1);
+assert.equal(round.view.places[0].name, '성수 카페');
+assert.equal(round.view.places[0].address, '서울 성동구 연무장길 12');
+assert.equal(round.view.places[0].lat, 37.544577);
+assert.equal(round.view.places[0].lng, 127.055961);
+assert.equal(round.view.places[0].mapUrl, api.safeHttpUrl(mapUrl));
+assert.deepEqual(
+  [...round.view.links].map((link) => ({ url: String(link.url), title: String(link.title) })),
+  [{ url: 'https://example.com/guide', title: '안내문' }],
+);
+passed += 1;
+
+const auto = pyStructured({ text: '메뉴는 https://example.com/menu 이에요 ✨' });
+const autoDecoded = await decode(api, auto.fragment);
+assert.equal(autoDecoded.text, '메뉴는 https://example.com/menu 이에요 ✨');
+assert.deepEqual(
+  [...autoDecoded.view.links].map((link) => ({ url: String(link.url), title: String(link.title) })),
+  [{ url: 'https://example.com/menu', title: '' }],
+);
+passed += 1;
+
+const dropped = pyStructured({
+  text: 'hi',
+  links: [
+    { url: 'javascript:alert(1)', title: 'bad' },
+    { url: 'https://example.com/ok', title: 'ok' },
+  ],
+});
+const droppedDecoded = await decode(api, dropped.fragment);
+assert.deepEqual(
+  [...droppedDecoded.view.links].map((link) => ({ url: String(link.url), title: String(link.title) })),
+  [{ url: 'https://example.com/ok', title: 'ok' }],
+);
+passed += 1;
+
+const tiny = pyStructured({ text: '안녕' });
+const tinyBytes = Buffer.from(tiny.fragment.slice(2).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+assert.equal(tinyBytes[0], 0x7b);
+const tinyBare = await decode(bare.api, tiny.fragment);
+assert.equal(tinyBare.state, 'ready');
+assert.equal(tinyBare.text, '안녕');
+passed += 1;
+
+const forced = py(
+  [
+    'import json',
+    'from encode_fragment import _b64, _deflate',
+    'body = json.dumps({"v":2,"text":"안녕 🌤️"}, ensure_ascii=False, separators=(",",":")).encode()',
+    'print("j=" + _b64(_deflate(body)), end="")',
+  ].join('\n'),
+);
+const forcedOk = await decode(api, forced);
+assert.equal(forcedOk.text, '안녕 🌤️');
+const forcedBare = await decode(bare.api, forced);
+assert.equal(forcedBare.state, 'error');
+assert.equal(forcedBare.reason, 'unsupported');
+passed += 2;
+
+const tooBig = py(
+  [
+    'import json',
+    'from encode_fragment import encode_structured',
+    'text = "".join(chr(0xAC00 + (i * 37) % 11172) for i in range(3000))',
+    'print("null" if encode_structured({"text": text}) is None else "url")',
+  ].join('\n'),
+).trim();
+assert.equal(tooBig, 'null');
+assert.throws(() => pyStructured({}));
+passed += 1;
+
+for (const emptyJ of ['#j=', '#j']) {
+  const result = await decode(api, emptyJ);
+  assert.equal(result.state, 'empty', `empty ${emptyJ}`);
+  passed += 1;
+}
+const badJ = await decode(api, '#j=aaaa');
+assert.equal(badJ.state, 'error');
+assert.equal(badJ.reason, 'format');
+passed += 1;
+
+location.href = `https://veronicamom.github.io/longlong-copy/#${packed.fragment}&tgWebAppVersion=8.0`;
+const strippedJ = api.takeFragmentFromLocation();
+assert.equal(strippedJ, packed.fragment);
+assert.equal(history.last.includes(packed.fragment), false);
+assert.equal(history.last, '/longlong-copy/#tgWebAppVersion=8.0');
+passed += 1;
+
 assert.ok(readme.includes(encoder.trim()), 'README should include the encoder source');
 
 console.log(`ok ${passed} round-trips`);
